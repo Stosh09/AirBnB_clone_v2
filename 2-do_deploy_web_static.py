@@ -1,49 +1,72 @@
 #!/usr/bin/python3
-# Fabfile to distribute an archive to a web server.
-import os.path
-from fabric.api import env
-from fabric.api import put
-from fabric.api import run
+""" 2-do_deploy_web_static """
+from fabric.api import env, local, put, run, runs_once
+from datetime import datetime
+import os
 
-env.hosts = ["104.196.168.90", "35.196.46.172"]
+# setting the web-01 and web-02 ip addresses
+env.hosts = ['54.161.236.32', '54.83.129.49']
+env.user = 'ubuntu'
+env.key_filename = '~/.ssh/school'
+
+
+@runs_once
+def do_pack():
+    """
+    generates a.tgz archive from the contents of the web_static folder
+    """
+
+    try:
+        local('mkdir -p versions')
+
+        date = datetime.now().strftime('%Y%m%d%H%M%S')
+        file_name = 'versions/web_static_{}.tgz'.format(date)
+
+        local('tar -cvzf {} web_static'.format(file_name))
+        print("web_static packed: {} -> {}Bytes".format(file_name,
+              os.path.getsize(file_name)))
+        return file_name
+    except Exception:
+        return None
 
 
 def do_deploy(archive_path):
-    """Distributes an archive to a web server.
-
-    Args:
-        archive_path (str): The path of the archive to distribute.
-    Returns:
-        If the file doesn't exist at archive_path or an error occurs - False.
-        Otherwise - True.
     """
+    distributes an archive to your web servers, using the function do_deploy
+    """
+    # returns false if archive_path does not exitst
     if os.path.isfile(archive_path) is False:
         return False
-    file = archive_path.split("/")[-1]
-    name = file.split(".")[0]
 
-    if put(archive_path, "/tmp/{}".format(file)).failed is True:
+    try:
+        # extract filename from a full path
+        filename = archive_path.split('/')[-1]
+        file_no_ext = filename.split('.')[0]
+
+        # create a path
+        path_name = "/data/web_static/releases/{}/".format(file_no_ext)
+
+        # upload the archive to /tmp/directory in web server
+        put(archive_path, '/tmp/')
+
+        # place the extracted content in desired folder
+        run('mkdir -p {}'.format(path_name))
+
+        # using tar command to extract the uploaded contents
+        run('tar -xzf /tmp/{} -C {}'.format(filename, path_name))
+
+        # Delete archive from web server
+        run('rm /tmp/{}'.format(filename))
+
+        # safely copy the running files
+        run("mv {}web_static/* {}".format(path_name, path_name))
+        run('rm -rf {}/web_static'.format(path_name))
+        run('rm -rf /data/web_static/current')
+
+        # Create a new symbolic link
+        run('ln -s {} /data/web_static/current'
+            .format(path_name))
+        print("New version deployed!")
+        return True
+    except Exception:
         return False
-    if run("rm -rf /data/web_static/releases/{}/".
-           format(name)).failed is True:
-        return False
-    if run("mkdir -p /data/web_static/releases/{}/".
-           format(name)).failed is True:
-        return False
-    if run("tar -xzf /tmp/{} -C /data/web_static/releases/{}/".
-           format(file, name)).failed is True:
-        return False
-    if run("rm /tmp/{}".format(file)).failed is True:
-        return False
-    if run("mv /data/web_static/releases/{}/web_static/* "
-           "/data/web_static/releases/{}/".format(name, name)).failed is True:
-        return False
-    if run("rm -rf /data/web_static/releases/{}/web_static".
-           format(name)).failed is True:
-        return False
-    if run("rm -rf /data/web_static/current").failed is True:
-        return False
-    if run("ln -s /data/web_static/releases/{}/ /data/web_static/current".
-           format(name)).failed is True:
-        return False
-    return True
